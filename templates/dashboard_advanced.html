@@ -72,10 +72,13 @@
 <script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
 <script src="https://d3js.org/d3.v7.min.js"></script>
 <script>
+
 // --- Activity Heatmap with Month/Year Filter ---
 const now = new Date();
 document.getElementById('month').value = now.getMonth() + 1;
 document.getElementById('year').value = now.getFullYear();
+
+
 let heatmapMap;
 let allActivities = [];
 let activeAthletes = new Set();
@@ -195,13 +198,6 @@ function syncAllVisualizations() {
   renderLeaderboardAndGraph(month, year);
 }
 
-// Set default month/year BEFORE any event listeners or syncAllVisualizations
-const now = new Date();
-document.getElementById('month').value = now.getMonth() + 1;
-document.getElementById('year').value = now.getFullYear();
-
-// Only now add event listeners and call syncAllVisualizations
-
 document.getElementById('heatmap-filter').addEventListener('submit', function(e) {
   e.preventDefault();
   syncAllVisualizations();
@@ -238,7 +234,6 @@ function renderLeaderboardAndGraph(month, year) {
         };
       });
       // Projection for current month
-      const now = new Date();
       const daysInMonth = new Date(year, month, 0).getDate();
       const todayDay = (year == now.getFullYear() && month == now.getMonth()+1) ? now.getDate() : daysInMonth;
       data.forEach((row, i) => {
@@ -306,7 +301,11 @@ function createCumChart(ctx, datasets, year, month) {
       scales: {
         x: {
           type: 'time',
-          time: { unit: 'day' },
+          time: {
+            parser: 'yyyy-MM-dd', // Explicitly set parser
+            unit: 'day',
+            tooltipFormat: 'yyyy-MM-dd' // Explicitly set tooltip format
+          },
           min: minDate,
           max: maxDate
         },

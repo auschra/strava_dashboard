@@ -7,3 +7,6 @@ __pycache__/
 
 # Database
 activities.db
+
+# virtual env
+venv/
