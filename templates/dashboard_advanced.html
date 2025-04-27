@@ -1,0 +1,320 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Strava Comp v2</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        #map, #heatmap, #snake-map { height: 400px; margin-bottom: 2rem; }
+        .viz-section { margin-bottom: 3rem; }
+    </style>
+</head>
+<body>
+<div class="container mt-4">
+    <h2>Strava Competition Advanced Dashboard</h2>
+    <hr/>
+    <div class="viz-section">
+        <h4>1. Activity Heatmap</h4>
+        <form id="heatmap-filter" class="row g-2 mb-3">
+          <div class="col-auto">
+            <label for="month" class="form-label">Month:</label>
+            <select id="month" class="form-select">
+              <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+            </select>
+          </div>
+          <div class="col-auto">
+            <label for="year" class="form-label">Year:</label>
+            <input type="number" id="year" class="form-control" min="2000" max="2100" value="2025">
+          </div>
+          <div class="col-auto align-self-end">
+            <button type="submit" class="btn btn-primary">Update</button>
+          </div>
+        </form>
+        <div id="athlete-filters" class="mb-2"></div>
+        <div id="heatmap"></div>
+    </div>
+    <div class="viz-section">
+        <h4>2. Individual Route Animations</h4>
+        <div id="map"></div>
+    </div>
+    <div class="viz-section">
+        <h4>3. Abstract Art Visualizations</h4>
+        <canvas id="abstract-canvas" width="800" height="400"></canvas>
+    </div>
+    <div class="viz-section">
+        <h4>4. Leaderboard & Progress Bars</h4>
+        <div id="leaderboard"></div>
+        <canvas id="cumulative-graph" width="800" height="400"></canvas>
+    </div>
+    <div class="viz-section">
+        <h4>5. Calendar Heatmaps</h4>
+        <div id="calendar-heatmap"></div>
+    </div>
+    <div class="viz-section">
+        <h4>6. Elevation Profiles</h4>
+        <canvas id="elevation-chart" width="800" height="400"></canvas>
+    </div>
+    <div class="viz-section">
+        <h4>7. "Best Of" Maps</h4>
+        <div id="bestof-map"></div>
+    </div>
+    <div class="viz-section">
+        <h4>8. Animated "Snake"/"Comet" Map</h4>
+        <div id="snake-map"></div>
+    </div>
+</div>
+<!-- JS Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+// --- Activity Heatmap with Month/Year Filter ---
+const now = new Date();
+document.getElementById('month').value = now.getMonth() + 1;
+document.getElementById('year').value = now.getFullYear();
+let heatmapMap;
+let allActivities = [];
+let activeAthletes = new Set();
+
+function renderAthleteFilters(athletes) {
+  const container = document.getElementById('athlete-filters');
+  container.innerHTML = '';
+  athletes.forEach(athleteId => {
+    const label = document.createElement('label');
+    label.className = 'me-3';
+    const checkbox = document.createElement('input');
+    checkbox.type = 'checkbox';
+    checkbox.value = athleteId;
+    checkbox.checked = true;
+    checkbox.className = 'form-check-input me-1';
+    checkbox.onchange = renderHeatmapWithFilters;
+    label.appendChild(checkbox);
+    label.appendChild(document.createTextNode(' Athlete ' + athleteId));
+    container.appendChild(label);
+  });
+}
+
+function renderHeatmap(month, year) {
+  fetch('/api/activities?month=' + month + '&year=' + year)
+    .then(r => r.json())
+    .then(activities => {
+      allActivities = activities;
+      const athleteIds = [...new Set(activities.map(a => a.athlete_id))];
+      renderAthleteFilters(athleteIds);
+      activeAthletes = new Set(athleteIds);
+      renderHeatmapWithFilters();
+    });
+}
+
+function getPolylineColors(coords, elevations) {
+  // Returns an array of {coords: [[lat, lng], ...], color: ...}
+  if (!elevations || elevations.length < 2) return [{coords, color: '#ff6600'}];
+  let segments = [];
+  for (let i = 1; i < coords.length; i++) {
+    let prev = elevations[i-1];
+    let curr = elevations[i];
+    let color = '#ff6600'; // flat = orange
+    if (curr > prev + 1) color = '#cc2222'; // up = red
+    else if (curr < prev - 1) color = '#22cc44'; // down = green
+    segments.push({coords: [coords[i-1], coords[i]], color});
+  }
+  return segments;
+}
+
+function renderHeatmapWithFilters() {
+  const checkboxes = document.querySelectorAll('#athlete-filters input[type=checkbox]');
+  activeAthletes = new Set(Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value));
+  if (heatmapMap) {
+    heatmapMap.remove();
+  }
+  const BRISBANE_COORDS = [-27.4698, 153.0251];
+  heatmapMap = L.map('heatmap').setView(BRISBANE_COORDS, 11); // Less detail (zoomed out)
+  L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+    maxZoom: 16, // Less detail
+    attribution: ' OpenStreetMap'
+  }).addTo(heatmapMap);
+  // Count frequency of each polyline
+  const freqMap = {};
+  allActivities.forEach(a => {
+    if (a.polyline) freqMap[a.polyline] = (freqMap[a.polyline] || 0) + 1;
+  });
+  const filtered = allActivities.filter(a => a.polyline && activeAthletes.has(a.athlete_id));
+  filtered.forEach(a => {
+    const coords = decodePolyline(a.polyline);
+    // Use elevations if available, else flat
+    let elevations = a.elevations || [];
+    if (elevations.length !== coords.length) {
+      elevations = Array(coords.length).fill(0);
+    }
+    let segments = getPolylineColors(coords, elevations);
+    let intensity = Math.min(1, 0.25 + 0.15 * (freqMap[a.polyline] - 1));
+    segments.forEach(seg => {
+      L.polyline(seg.coords, {color: seg.color, weight: 3, opacity: intensity}).addTo(heatmapMap);
+    });
+  });
+  const allCoords = filtered.flatMap(a => decodePolyline(a.polyline));
+  if (allCoords.length > 0) {
+    heatmapMap.fitBounds(allCoords);
+  }
+}
+
+function decodePolyline(encoded) {
+  let points = [];
+  let index = 0, lat = 0, lng = 0;
+  while (index < encoded.length) {
+    let b, shift = 0, result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lat += dlat;
+    shift = 0;
+    result = 0;
+    do {
+      b = encoded.charCodeAt(index++) - 63;
+      result |= (b & 0x1f) << shift;
+      shift += 5;
+    } while (b >= 0x20);
+    let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+    lng += dlng;
+    points.push([lat / 1e5, lng / 1e5]);
+  }
+  return points;
+}
+
+function syncAllVisualizations() {
+  const month = parseInt(document.getElementById('month').value);
+  const year = parseInt(document.getElementById('year').value);
+  renderHeatmap(month, year);
+  renderLeaderboardAndGraph(month, year);
+}
+
+// Set default month/year BEFORE any event listeners or syncAllVisualizations
+const now = new Date();
+document.getElementById('month').value = now.getMonth() + 1;
+document.getElementById('year').value = now.getFullYear();
+
+// Only now add event listeners and call syncAllVisualizations
+
+document.getElementById('heatmap-filter').addEventListener('submit', function(e) {
+  e.preventDefault();
+  syncAllVisualizations();
+});
+window.addEventListener('DOMContentLoaded', syncAllVisualizations);
+
+// --- Leaderboard and Cumulative Graph ---
+function renderLeaderboardAndGraph(month, year) {
+  fetch(`/api/leaderboard?month=${month}&year=${year}`)
+    .then(r => r.json())
+    .then(data => {
+      console.log('Leaderboard API data:', data);
+      data.sort((a, b) => b.total_km - a.total_km);
+      let html = '<table class="table table-striped"><thead><tr><th>Athlete</th><th>Total KM</th><th>Activities</th></tr></thead><tbody>';
+      data.forEach(row => {
+        html += `<tr><td>${row.athlete_id}</td><td>${row.total_km}</td><td>${row.activity_count}</td></tr>`;
+      });
+      html += '</tbody></table>';
+      document.getElementById('leaderboard').innerHTML = html;
+      // Cumulative Graph
+      const ctx = document.getElementById('cumulative-graph').getContext('2d');
+      if (window.cumChart) {
+        window.cumChart.destroy();
+        window.cumChart = null;
+      }
+      const datasets = data.map((row, i) => {
+        console.log(`Athlete ${row.athlete_id} cum data:`, row.cum);
+        return {
+          label: `Athlete ${row.athlete_id}`,
+          data: row.cum.map(d => ({x: d.date, y: d.cum_km})),
+          fill: false,
+          borderColor: `hsl(${i * 60}, 80%, 40%)`,
+          tension: 0.2
+        };
+      });
+      // Projection for current month
+      const now = new Date();
+      const daysInMonth = new Date(year, month, 0).getDate();
+      const todayDay = (year == now.getFullYear() && month == now.getMonth()+1) ? now.getDate() : daysInMonth;
+      data.forEach((row, i) => {
+        if (year == now.getFullYear() && month == now.getMonth()+1) {
+          const last = row.cum.length ? row.cum[row.cum.length-1].cum_km : 0;
+          const avg = last / todayDay;
+          const upper = avg * (daysInMonth + 2);
+          const lower = avg * (daysInMonth - 2);
+          datasets.push({
+            label: `Projection (Athlete ${row.athlete_id})`,
+            data: [
+              {x: row.cum.length ? row.cum[row.cum.length-1].date : `${year}-${month.toString().padStart(2,'0')}-01`, y: last},
+              {x: `${year}-${month.toString().padStart(2,'0')}-${daysInMonth}`, y: avg*daysInMonth}
+            ],
+            borderDash: [5,5],
+            borderColor: `hsl(${i * 60}, 80%, 40%)`,
+            backgroundColor: 'transparent',
+            pointRadius: 0,
+            borderWidth: 2,
+            fill: false
+          });
+          datasets.push({
+            label: `Upper/Lower (Athlete ${row.athlete_id})`,
+            data: [
+              {x: row.cum.length ? row.cum[row.cum.length-1].date : `${year}-${month.toString().padStart(2,'0')}-01`, y: last},
+              {x: `${year}-${month.toString().padStart(2,'0')}-${daysInMonth}`, y: upper}
+            ],
+            borderDash: [2,8],
+            borderColor: `hsl(${i * 60}, 80%, 70%)`,
+            backgroundColor: 'transparent',
+            pointRadius: 0,
+            borderWidth: 1,
+            fill: false
+          });
+          datasets.push({
+            label: `Upper/Lower (Athlete ${row.athlete_id})`,
+            data: [
+              {x: row.cum.length ? row.cum[row.cum.length-1].date : `${year}-${month.toString().padStart(2,'0')}-01`, y: last},
+              {x: `${year}-${month.toString().padStart(2,'0')}-${daysInMonth}`, y: lower}
+            ],
+            borderDash: [2,8],
+            borderColor: `hsl(${i * 60}, 80%, 70%)`,
+            backgroundColor: 'transparent',
+            pointRadius: 0,
+            borderWidth: 1,
+            fill: false
+          });
+        }
+      });
+      window.cumChart = createCumChart(ctx, datasets, year, month);
+    });
+}
+
+function createCumChart(ctx, datasets, year, month) {
+  // Set min/max for the selected month
+  const daysInMonth = new Date(year, month, 0).getDate();
+  const minDate = `${year}-${month.toString().padStart(2,'0')}-01`;
+  const maxDate = `${year}-${month.toString().padStart(2,'0')}-${daysInMonth.toString().padStart(2,'0')}`;
+  return new Chart(ctx, {
+    type: 'line',
+    data: { datasets },
+    options: {
+      parsing: false,
+      plugins: { legend: { display: true } },
+      scales: {
+        x: {
+          type: 'time',
+          time: { unit: 'day' },
+          min: minDate,
+          max: maxDate
+        },
+        y: { title: { display: true, text: 'Cumulative KM' } }
+      }
+    }
+  });
+}
+</script>
+</body>
+</html>
