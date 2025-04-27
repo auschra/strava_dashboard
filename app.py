@@ -198,11 +198,29 @@ def api_leaderboard():
         for day in sorted(daily.keys()):
             total += daily[day]
             cum.append({'date': day, 'cum_km': round(total/1000, 2)})
+        # Count medals for this athlete in this month
+        gold = silver = bronze = 0
+        route_records = 0
+        for a in monthly_acts:
+            for effort in a.get('segment_efforts', []):
+                pr_rank = effort.get('pr_rank')
+                if pr_rank == 1:
+                    gold += 1
+                    route_records += 1
+                elif pr_rank == 2:
+                    silver += 1
+                elif pr_rank == 3:
+                    bronze += 1
         leaderboard.append({
             'athlete_id': athlete_id,
             'cum': cum,
             'total_km': round(total/1000, 2),
-            'activity_count': len(monthly_acts)
+            'activity_count': len(monthly_acts),
+            'activities': monthly_acts,
+            'gold': gold,
+            'silver': silver,
+            'bronze': bronze,
+            'route_records': route_records
         })
     return jsonify(leaderboard)
 
