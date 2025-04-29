@@ -3,6 +3,7 @@ import requests
 from flask import Flask, jsonify, render_template, request
 from datetime import datetime
 from dotenv import load_dotenv, set_key
+import json
 
 load_dotenv()
 
@@ -10,7 +11,12 @@ STRAVA_CLIENT_ID = os.getenv('STRAVA_CLIENT_ID')
 STRAVA_CLIENT_SECRET = os.getenv('STRAVA_CLIENT_SECRET')
 STRAVA_ACCESS_TOKEN = os.getenv('STRAVA_ACCESS_TOKEN')
 STRAVA_REFRESH_TOKEN = os.getenv('STRAVA_REFRESH_TOKEN')
-ATHLETE_IDS = os.getenv('ATHLETE_IDS').split(',')
+
+# Load athlete mapping from athletes.json
+with open(os.path.join(os.path.dirname(__file__), 'athletes.json'), 'r') as f:
+    ATHLETE_MAP = json.load(f)
+
+ATHLETE_IDS = list(ATHLETE_MAP.keys())
 
 STRAVA_API_BASE = 'https://www.strava.com/api/v3'
 
@@ -93,6 +99,7 @@ def stats(athlete_id):
     total_km = sum(a['distance'] for a in activities) / 1000
     return jsonify({
         "athlete_id": athlete_id,
+        "athlete_name": ATHLETE_MAP.get(athlete_id, athlete_id),
         "total_km_this_month": round(total_km, 2),
         "activity_count": len(activities)
     })
@@ -105,6 +112,7 @@ def dashboard():
         total_km = sum(a['distance'] for a in activities) / 1000
         athlete_stats.append({
             'athlete_id': athlete_id,
+            'athlete_name': ATHLETE_MAP.get(athlete_id, athlete_id),
             'total_km_this_month': round(total_km, 2),
             'activity_count': len(activities)
         })
@@ -130,6 +138,7 @@ def api_activities():
                     continue
             results.append({
                 'athlete_id': athlete_id,
+                'athlete_name': ATHLETE_MAP.get(athlete_id, athlete_id),
                 'id': a['id'],
                 'name': a.get('name'),
                 'distance': a.get('distance', 0),
@@ -165,6 +174,7 @@ def api_bestof():
         longest = max(acts, key=lambda x: x.get('distance', 0))
         fastest = max(acts, key=lambda x: x.get('distance', 0)/x.get('moving_time', 1) if x.get('moving_time', 0) else 0)
         best[athlete_id] = {
+            'athlete_name': ATHLETE_MAP.get(athlete_id, athlete_id),
             'longest': {
                 'id': longest['id'],
                 'distance': longest.get('distance', 0),
@@ -187,7 +197,10 @@ def api_elevation():
     data = {}
     for athlete_id in ATHLETE_IDS:
         acts = get_activities(athlete_id, STRAVA_ACCESS_TOKEN)
-        data[athlete_id] = [a.get('total_elevation_gain', 0) for a in acts]
+        data[athlete_id] = {
+            'athlete_name': ATHLETE_MAP.get(athlete_id, athlete_id),
+            'elevation_gains': [a.get('total_elevation_gain', 0) for a in acts]
+        }
     return jsonify(data)
 
 # New endpoint: Leaderboard
@@ -272,6 +285,7 @@ def api_leaderboard():
         diversity = round(unique_routes / len(monthly_acts), 2) if monthly_acts else 0
         leaderboard.append({
             'athlete_id': athlete_id,
+            'athlete_name': ATHLETE_MAP.get(athlete_id, athlete_id),
             'cum': cum,
             'gold': gold, 'silver': silver, 'bronze': bronze, 'route_records': route_records,
             'avg_pace': format_time(avg_pace_sec),
@@ -297,11 +311,6 @@ def api_leaderboard():
             ]
         })
     return jsonify(leaderboard)
-
-# Update dashboard route to use new advanced template
-@app.route('/advanced')
-def advanced_dashboard():
-    return render_template('dashboard_advanced.html')
 
 if __name__ == '__main__':
     app.run(debug=True)

@@ -10,3 +10,6 @@ activities.db
 
 # virtual env
 venv/
+
+# Data
+athletes.json

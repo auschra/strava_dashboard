@@ -3,46 +3,471 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>Strava Competition Dashboard</title>
+    <title>Strava Comp v2</title>
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" />
+    <style>
+        html, body {
+            height: 100%;
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            background: #f5f6fa;
+        }
+        .container {
+            max-width: 100vw;
+            margin: 0;
+            padding: 0 12px;
+        }
+        .dashboard-layout {
+            display: flex;
+            flex-direction: row;
+            align-items: flex-start;
+            width: 100%;
+            margin: 0;
+            box-sizing: border-box;
+        }
+        .sidebar {
+            position: sticky;
+            top: 100px;
+            left: 0;
+            align-self: flex-start;
+            width: 170px;
+            min-width: 150px;
+            max-width: 180px;
+            min-height: 60vh;
+            height: auto;
+            background: #f8f9fa;
+            border-radius: 1rem;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            padding: 2rem 1rem 1.5rem 1rem;
+            margin: 0;
+            margin-right: 18px;
+            z-index: 100;
+        }
+        .main-content {
+            flex: 1 1 0%;
+            width: 0;
+            margin-left: 0;
+            min-width: 0;
+            margin-right: 18px;
+        }
+        .leaderboard-section {
+            display: flex;
+            flex-direction: column;
+            align-items: stretch;
+            width: 100%;
+            height: auto;
+            margin-left: 0;
+            background: #fff;
+            box-shadow: 0 2px 8px rgba(0,0,0,0.04);
+            padding: 2rem 2.5rem 2.5rem 2.5rem;
+            border-radius: 1rem;
+        }
+        #map, #heatmap, #snake-map { height: 400px; margin-bottom: 2rem; }
+        .viz-section { margin-bottom: 3rem; }
+        @media (max-width: 900px) {
+            .dashboard-layout {
+                flex-direction: column;
+            }
+            .sidebar {
+                position: static;
+                width: 100%;
+                max-width: 100%;
+                margin-bottom: 2rem;
+                margin-right: 0;
+            }
+            .main-content {
+                margin-left: 0;
+                margin-right: 0;
+            }
+        }
+        .athlete-color-dot {
+            display: inline-block;
+            width: 14px;
+            height: 14px;
+            border-radius: 50%;
+            margin-right: 7px;
+            vertical-align: middle;
+            border: 1px solid #bbb;
+        }
+        .athlete-filter-label {
+            display: flex;
+            align-items: center;
+            margin-bottom: 0.25rem;
+            font-size: 1rem;
+        }
+    </style>
 </head>
 <body>
-<div class="container mt-5">
-    <h2 class="mb-4">Strava Competition Dashboard</h2>
-    <table class="table table-striped">
-        <thead>
-            <tr>
-                <th>Athlete ID</th>
-                <th>Total KM This Month</th>
-                <th>Activity Count</th>
-            </tr>
-        </thead>
-        <tbody>
-        {% for athlete in athletes %}
-            <tr>
-                <td>{{ athlete.athlete_id }}</td>
-                <td>{{ athlete.total_km_this_month }}</td>
-                <td>{{ athlete.activity_count }}</td>
-            </tr>
-        {% endfor %}
-        </tbody>
-    </table>
-</div>
 <div class="container mt-4">
-  <button class="btn btn-secondary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#rulesCollapse" aria-expanded="false" aria-controls="rulesCollapse">
-    Rules & Regulations
-  </button>
-  <div class="collapse" id="rulesCollapse">
-    <div class="viz-section leaderboard-section">
-      <h4>Rules & Regulations</h4>
-      <ul class="list-unstyled mb-0">
-        <li>Rule 1: Lorem ipsum dolor sit amet.</li>
-        <li>Rule 2: Consectetur adipiscing elit.</li>
-        <li>Rule 3: Sed do eiusmod tempor incididunt.</li>
-      </ul>
+    <h2 class="text-center">Strava Comp v2</h2>
+    <hr/>
+    <div class="dashboard-layout">
+        <div class="sidebar">
+            <form id="heatmap-filter" class="mb-4">
+                <div class="mb-3">
+                    <label for="month" class="form-label">Month:</label>
+                    <select id="month" class="form-select">
+                        <option value="1">Jan</option><option value="2">Feb</option><option value="3">Mar</option><option value="4">Apr</option><option value="5">May</option><option value="6">Jun</option><option value="7">Jul</option><option value="8">Aug</option><option value="9">Sep</option><option value="10">Oct</option><option value="11">Nov</option><option value="12">Dec</option>
+                    </select>
+                </div>
+                <div class="mb-3">
+                    <label for="year" class="form-label">Year:</label>
+                    <input type="number" id="year" class="form-control" min="2000" max="2025" value="2025">
+                </div>
+                <div class="mb-3">
+                    <label class="form-label">Athletes:</label>
+                    <div id="athlete-filters" class="mb-2"></div>
+                </div>
+                <button type="submit" class="btn btn-primary w-100">Update</button>
+            </form>
+        </div>
+        <div class="main-content">
+            <div class="viz-section leaderboard-section">
+                <h4>Leaderboard</h4>
+                <div id="leaderboard"></div>
+                <canvas id="cumulative-graph" width="1056" height="320"></canvas>
+            </div>
+            <div class="viz-section">
+                <div id="heatmap"></div>
+            </div>
+        </div>
     </div>
-  </div>
+    <button class="btn btn-secondary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#rulesCollapse" aria-expanded="false" aria-controls="rulesCollapse">
+        Rules & Regulations
+    </button>
+    <div class="collapse" id="rulesCollapse">
+        <div class="viz-section leaderboard-section">
+            <h4>Rules & Regulations</h4>
+            <ul class="list-unstyled mb-0">
+                <li>Rule 1: Minimum pace of 6:30 min/km.</li>
+                <li>Rule 2: Only runs uploaded publicly to Strava will be counted.</li>
+                <li>Rewards and punishments TBD.</li>
+            </ul>
+        </div>
+    </div>
 </div>
+<!-- JS Libraries -->
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.0/dist/chart.umd.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/luxon@3.4.4/build/global/luxon.min.js"></script>
+<script src="https://cdn.jsdelivr.net/npm/chartjs-adapter-luxon@1.3.1/dist/chartjs-adapter-luxon.umd.min.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js"></script>
+<script src="https://d3js.org/d3.v7.min.js"></script>
+<script>
+
+// --- Activity Heatmap with Month/Year Filter ---
+const now = new Date();
+document.getElementById('month').value = now.getMonth() + 1;
+const yearInput = document.getElementById('year');
+yearInput.value = now.getFullYear();
+yearInput.max = now.getFullYear();
+
+let heatmapMap;
+let allActivities = [];
+let activeAthletes = new Set();
+let athleteNames = {};
+
+// --- Athlete Color Palette ---
+const ATHLETE_COLORS = [
+    '#e6194b', '#3cb44b', '#ffe119', '#4363d8', '#f58231', '#911eb4', '#46f0f0', '#f032e6', '#bcf60c', '#fabebe',
+    '#008080', '#e6beff', '#9a6324', '#fffac8', '#800000', '#aaffc3', '#808000', '#ffd8b1', '#000075', '#808080'
+];
+function getAthleteColor(athleteId, idx) {
+    return ATHLETE_COLORS[idx % ATHLETE_COLORS.length];
+}
+
+function renderAthleteFilters(athletes) {
+    const container = document.getElementById('athlete-filters');
+    container.innerHTML = '';
+    athletes.forEach((athlete, idx) => {
+        const name = athleteNames[athlete] || `Athlete ${athlete}`;
+        const color = getAthleteColor(athlete, idx);
+        const label = document.createElement('label');
+        label.className = 'athlete-filter-label';
+        label.innerHTML = `<span class="athlete-color-dot" style="background:${color}"></span>` +
+            `<input type="checkbox" value="${athlete}" checked style="margin-right: 6px;">${name}`;
+        container.appendChild(label);
+    });
+}
+
+function renderHeatmap(month, year) {
+    fetch('/api/activities?month=' + month + '&year=' + year)
+        .then(r => r.json())
+        .then(activities => {
+            allActivities = activities;
+            const athleteIds = [...new Set(activities.map(a => a.athlete_id))];
+            renderAthleteFilters(athleteIds);
+            activeAthletes = new Set(athleteIds);
+            renderHeatmapWithFilters();
+        });
+}
+
+function getPolylineColors(coords, elevations) {
+    // Returns an array of {coords: [[lat, lng], ...], color: ...}
+    if (!elevations || elevations.length < 2) return [{coords, color: '#ff6600'}];
+    let segments = [];
+    for (let i = 1; i < coords.length; i++) {
+        let prev = elevations[i-1];
+        let curr = elevations[i];
+        let color = '#ff6600'; // flat = orange
+        if (curr > prev + 1) color = '#cc2222'; // up = red
+        else if (curr < prev - 1) color = '#22cc44'; // down = green
+        segments.push({coords: [coords[i-1], coords[i]], color});
+    }
+    return segments;
+}
+
+function renderHeatmapWithFilters() {
+    const checkboxes = document.querySelectorAll('#athlete-filters input[type=checkbox]');
+    activeAthletes = new Set(Array.from(checkboxes).filter(cb => cb.checked).map(cb => cb.value));
+    if (heatmapMap) {
+        heatmapMap.remove();
+    }
+    const BRISBANE_COORDS = [-27.4698, 153.0251];
+    heatmapMap = L.map('heatmap').setView(BRISBANE_COORDS, 11);
+    L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+        maxZoom: 16,
+        attribution: ' OpenStreetMap'
+    }).addTo(heatmapMap);
+    // Count frequency of each polyline per athlete
+    const freqMap = {};
+    allActivities.forEach(a => {
+        if (a.polyline && activeAthletes.has(a.athlete_id)) {
+            const key = `${a.athlete_id}|${a.polyline}`;
+            freqMap[key] = (freqMap[key] || 0) + 1;
+        }
+    });
+    const filtered = allActivities.filter(a => a.polyline && activeAthletes.has(a.athlete_id));
+    filtered.forEach((a, idx) => {
+        const coords = decodePolyline(a.polyline);
+        let elevations = a.elevations || [];
+        if (elevations.length !== coords.length) {
+            elevations = Array(coords.length).fill(0);
+        }
+        let segments = getPolylineColors(coords, elevations);
+        // Use frequency/intensity per athlete+polyline
+        const freq = freqMap[`${a.athlete_id}|${a.polyline}`] || 1;
+        let intensity = Math.min(1, 0.25 + 0.15 * (freq - 1));
+        // Use athlete color for all segments
+        const athleteIdx = Array.from(activeAthletes).indexOf(a.athlete_id);
+        const color = getAthleteColor(a.athlete_id, athleteIdx >= 0 ? athleteIdx : idx);
+        segments.forEach(seg => {
+            L.polyline(seg.coords, {color: color, weight: 3, opacity: intensity}).addTo(heatmapMap);
+        });
+    });
+    const allCoords = filtered.flatMap(a => decodePolyline(a.polyline));
+    if (allCoords.length > 0) {
+        heatmapMap.fitBounds(allCoords);
+    }
+}
+
+function decodePolyline(encoded) {
+    let points = [];
+    let index = 0, lat = 0, lng = 0;
+    while (index < encoded.length) {
+        let b, shift = 0, result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        let dlat = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lat += dlat;
+        shift = 0;
+        result = 0;
+        do {
+            b = encoded.charCodeAt(index++) - 63;
+            result |= (b & 0x1f) << shift;
+            shift += 5;
+        } while (b >= 0x20);
+        let dlng = ((result & 1) ? ~(result >> 1) : (result >> 1));
+        lng += dlng;
+        points.push([lat / 1e5, lng / 1e5]);
+    }
+    return points;
+}
+
+function syncAllVisualizations() {
+    const month = parseInt(document.getElementById('month').value);
+    const year = parseInt(document.getElementById('year').value);
+    renderHeatmap(month, year);
+    renderLeaderboardAndGraph(month, year);
+}
+
+document.getElementById('heatmap-filter').addEventListener('submit', function(e) {
+    e.preventDefault();
+    syncAllVisualizations();
+});
+window.addEventListener('DOMContentLoaded', syncAllVisualizations);
+
+// --- Leaderboard and Cumulative Graph ---
+function renderLeaderboardAndGraph(month, year) {
+    fetch(`/api/leaderboard?month=${month}&year=${year}`)
+        .then(r => r.json())
+        .then(data => {
+            console.log('Leaderboard API data:', data);
+            data.sort((a, b) => b.total_km - a.total_km);
+            data.forEach(row => {
+                athleteNames[row.athlete_id] = row.athlete_name;
+            });
+            let html = '<table class="table table-striped leaderboard-table"><thead><tr><th></th><th>Athlete</th><th>Total KM</th><th>Activities</th><th>🥇</th><th>🥈</th><th>🥉</th><th>Route Records</th><th>Avg Pace</th><th>Total Elev Gain</th><th>Avg Elev Gain</th><th>GAP</th><th>Total Moving Time</th><th>Fastest 1km</th><th>Fastest 5km</th><th>Fastest 10km</th></tr></thead><tbody>';
+            data.forEach((row, i) => {
+                const name = row.athlete_name || `Athlete ${row.athlete_id}`;
+                const color = getAthleteColor(row.athlete_id, i);
+                const dropdownId = `athlete-activities-${row.athlete_id}`;
+                const arrowId = `arrow-${row.athlete_id}`;
+                html += `<tr class="athlete-row" data-athlete="${row.athlete_id}">
+                    <td style="width:32px;text-align:center;cursor:pointer;transition:0.2s;" onclick="toggleActivityDropdown('${dropdownId}', '${arrowId}')">
+                        <span id="${arrowId}" class="dropdown-arrow" style="font-size:18px;display:inline-block;transition:transform 0.2s;">&#9660;</span>
+                    </td>
+                    <td><span class="athlete-color-dot" style="background:${color}"></span> ${name}</td>
+                    <td>${row.total_km}</td>
+                    <td>${row.activity_count}</td>
+                    <td>${row.gold || 0}</td>
+                    <td>${row.silver || 0}</td>
+                    <td>${row.bronze || 0}</td>
+                    <td>${row.route_records || 0}</td>
+                    <td>${row.avg_pace || ''}</td>
+                    <td>${row.total_elev_gain || 0}</td>
+                    <td>${row.avg_elev_gain || 0}</td>
+                    <td>${row.gap || ''}</td>
+                    <td>${row.total_moving_time || ''}</td>
+                    <td>${row.fastest_1km || ''}</td>
+                    <td>${row.fastest_5km || ''}</td>
+                    <td>${row.fastest_10km || ''}</td>
+                </tr>`;
+                // Activity dropdown (hidden by default, animated)
+                html += `<tr id="${dropdownId}" class="activity-dropdown-row" style="display:none;background:#f9f9fc;">
+                  <td></td><td colspan="15">
+                    <div class="activity-dropdown-content" style="max-height:0;overflow:hidden;transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);">
+                    <table class="table table-sm mb-0"><thead><tr><th>Date</th><th>Distance (km)</th><th>Type</th><th>Pace (min/km)</th><th>Elevation (m)</th></tr></thead><tbody>`;
+                if (row.activities && row.activities.length) {
+                  row.activities.forEach(act => {
+                    const distKm = act.distance ? (act.distance/1000) : 0;
+                    const pace = (act.moving_time && distKm) ? (act.moving_time/60/distKm).toFixed(2) : '';
+                    const elev = act.total_elevation_gain !== undefined ? act.total_elevation_gain : (act.elevation_gain || '');
+                    html += `<tr><td>${act.start_date ? act.start_date.slice(0,10) : ''}</td><td>${distKm.toFixed(2)}</td><td>${act.type || ''}</td><td>${pace}</td><td>${elev}</td></tr>`;
+                  });
+                } else {
+                  html += `<tr><td colspan="5" class="text-muted">No activities found</td></tr>`;
+                }
+                html += `</tbody></table></div></td></tr>`;
+            });
+            html += '</tbody></table>';
+            document.getElementById('leaderboard').innerHTML = html;
+
+            // Cumulative Graph
+            const ctx = document.getElementById('cumulative-graph').getContext('2d');
+            if (window.cumChart) {
+                window.cumChart.destroy();
+                window.cumChart = null;
+            }
+            // Use row.cum for cumulative graph!
+            const datasets = data.map((row, i) => {
+                const name = row.athlete_name || `Athlete ${row.athlete_id}`;
+                const color = getAthleteColor(row.athlete_id, i);
+                return {
+                    label: name,
+                    data: (row.cum || []).map(d => ({x: d.date, y: d.cum_km})),
+                    borderColor: color,
+                    backgroundColor: color,
+                    pointRadius: 2,
+                    pointHoverRadius: 5,
+                    tension: 0.1,
+                    spanGaps: true,
+                    fill: false
+                };
+            });
+            console.log('Graph datasets:', datasets);
+            const hasData = datasets.some(ds => ds.data && ds.data.length > 0);
+            if (hasData) {
+                window.cumChart = createCumChart(ctx, datasets, year, month);
+                document.getElementById('cumulative-graph').style.display = '';
+                document.getElementById('cumulative-graph').nextElementSibling && (document.getElementById('cumulative-graph').nextElementSibling.remove());
+            } else {
+                document.getElementById('cumulative-graph').style.display = 'none';
+                if (!document.getElementById('no-graph-msg')) {
+                    const msg = document.createElement('div');
+                    msg.id = 'no-graph-msg';
+                    msg.className = 'text-muted text-center';
+                    msg.style.margin = '2rem 0';
+                    msg.innerText = 'No data available for the selected month/year.';
+                    document.getElementById('cumulative-graph').parentNode.appendChild(msg);
+                }
+            }
+        });
+}
+
+function toggleActivityDropdown(dropdownId, arrowId) {
+    const row = document.getElementById(dropdownId);
+    const content = row ? row.querySelector('.activity-dropdown-content') : null;
+    const arrow = document.getElementById(arrowId);
+    if (row && content && arrow) {
+        const isOpen = row.style.display !== 'none';
+        if (isOpen) {
+            // Animate close
+            content.style.maxHeight = '0';
+            setTimeout(() => { row.style.display = 'none'; }, 300);
+            arrow.style.transform = 'rotate(0deg)';
+        } else {
+            row.style.display = '';
+            // Animate open
+            setTimeout(() => { content.style.maxHeight = content.scrollHeight + 'px'; }, 10);
+            arrow.style.transform = 'rotate(180deg)';
+        }
+    }
+}
+
+function createCumChart(ctx, datasets, year, month) {
+    // Set min/max for the selected month
+    const daysInMonth = new Date(year, month, 0).getDate();
+    const minDate = `${year}-${month.toString().padStart(2,'0')}-01`;
+    const maxDate = `${year}-${month.toString().padStart(2,'0')}-${daysInMonth.toString().padStart(2,'0')}`;
+    datasets.forEach(ds => ds.spanGaps = true);
+    console.log('createCumChart datasets:', datasets);
+    console.log('createCumChart minDate:', minDate, 'maxDate:', maxDate);
+    return new Chart(ctx, {
+        type: 'line',
+        data: { datasets },
+        options: {
+            plugins: { legend: { display: true } },
+            scales: {
+                x: {
+                    type: 'time',
+                    time: {
+                        parser: 'yyyy-MM-dd',
+                        unit: 'week',
+                        tooltipFormat: 'dd/MM',
+                        displayFormats: {
+                            week: 'dd/MM',
+                            day: 'dd/MM'
+                        }
+                    },
+                    min: minDate,
+                    max: maxDate,
+                    ticks: {
+                        source: 'auto',
+                        autoSkip: true,
+                        maxRotation: 0,
+                        minRotation: 0,
+                        callback: function(value, index, ticks) {
+                            // Only show label for first day of each week
+                            const date = this.getLabelForValue(value);
+                            const d = new Date(date);
+                            if (d.getDay() === 1 || index === 0) { // Monday or first tick
+                                return d.toLocaleDateString('en-GB', { day: '2-digit', month: '2-digit' });
+                            }
+                            return '';
+                        }
+                    }
+                },
+                y: { title: { display: true, text: 'Cumulative KM' } }
+            }
+        }
+    });
+}
+</script>
 <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>
