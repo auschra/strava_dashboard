@@ -101,7 +101,7 @@
 </head>
 <body>
 <div class="container mt-4">
-    <h2>Strava Comp v2</h2>
+    <h2 class="text-center">Strava Comp v2</h2>
     <hr/>
     <div class="dashboard-layout">
         <div class="sidebar">
@@ -125,14 +125,26 @@
         </div>
         <div class="main-content">
             <div class="viz-section leaderboard-section">
-                <h4>Leaderboard & Progress Bars</h4>
+                <h4>Leaderboard</h4>
                 <div id="leaderboard"></div>
                 <canvas id="cumulative-graph" width="1056" height="320"></canvas>
             </div>
             <div class="viz-section">
-                <h4>Heatmap</h4>
                 <div id="heatmap"></div>
             </div>
+        </div>
+    </div>
+    <button class="btn btn-secondary mb-3" type="button" data-bs-toggle="collapse" data-bs-target="#rulesCollapse" aria-expanded="false" aria-controls="rulesCollapse">
+        Rules & Regulations
+    </button>
+    <div class="collapse" id="rulesCollapse">
+        <div class="viz-section leaderboard-section">
+            <h4>Rules & Regulations</h4>
+            <ul class="list-unstyled mb-0">
+                <li>Rule 1: Minimum pace of 6:30 min/km.</li>
+                <li>Rule 2: Only runs uploaded publicly to Strava will be counted.</li>
+                <li>Rewards and punishments TBD.</li>
+            </ul>
         </div>
     </div>
 </div>
@@ -294,7 +306,7 @@ function renderLeaderboardAndGraph(month, year) {
         .then(data => {
             console.log('Leaderboard API data:', data);
             data.sort((a, b) => b.total_km - a.total_km);
-            let html = '<table class="table table-striped leaderboard-table"><thead><tr><th></th><th>Athlete</th><th>Total KM</th><th>Activities</th><th>🥇</th><th>🥈</th><th>🥉</th><th>Route Records</th></tr></thead><tbody>';
+            let html = '<table class="table table-striped leaderboard-table"><thead><tr><th></th><th>Athlete</th><th>Total KM</th><th>Activities</th><th>🥇</th><th>🥈</th><th>🥉</th><th>Route Records</th><th>Avg Pace</th><th>Total Elev Gain</th><th>Avg Elev Gain</th><th>GAP</th><th>Total Moving Time</th><th>Fastest 1km</th><th>Fastest 5km</th><th>Fastest 10km</th></tr></thead><tbody>';
             data.forEach((row, i) => {
                 const athleteId = row.athlete_id;
                 const color = getAthleteColor(athleteId, i);
@@ -311,10 +323,18 @@ function renderLeaderboardAndGraph(month, year) {
                     <td>${row.silver || 0}</td>
                     <td>${row.bronze || 0}</td>
                     <td>${row.route_records || 0}</td>
+                    <td>${row.avg_pace || ''}</td>
+                    <td>${row.total_elev_gain || 0}</td>
+                    <td>${row.avg_elev_gain || 0}</td>
+                    <td>${row.gap || ''}</td>
+                    <td>${row.total_moving_time || ''}</td>
+                    <td>${row.fastest_1km || ''}</td>
+                    <td>${row.fastest_5km || ''}</td>
+                    <td>${row.fastest_10km || ''}</td>
                 </tr>`;
                 // Activity dropdown (hidden by default, animated)
                 html += `<tr id="${dropdownId}" class="activity-dropdown-row" style="display:none;background:#f9f9fc;">
-                  <td></td><td colspan="7">
+                  <td></td><td colspan="15">
                     <div class="activity-dropdown-content" style="max-height:0;overflow:hidden;transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);">
                     <table class="table table-sm mb-0"><thead><tr><th>Date</th><th>Distance (km)</th><th>Type</th><th>Pace (min/km)</th><th>Elevation (m)</th></tr></thead><tbody>`;
                 if (row.activities && row.activities.length) {
@@ -449,7 +469,7 @@ function renderLeaderboardAndGraph(month, year) {
         .then(data => {
             console.log('Leaderboard API data:', data);
             data.sort((a, b) => b.total_km - a.total_km);
-            let html = '<table class="table table-striped leaderboard-table"><thead><tr><th></th><th>Athlete</th><th>Total KM</th><th>Activities</th><th>🥇</th><th>🥈</th><th>🥉</th><th>Route Records</th></tr></thead><tbody>';
+            let html = '<table class="table table-striped leaderboard-table"><thead><tr><th></th><th>Athlete</th><th>Total KM</th><th>Activities</th><th>🥇</th><th>🥈</th><th>🥉</th><th>Route Records</th><th>Avg Pace</th><th>Total Elev Gain</th><th>Avg Elev Gain</th><th>GAP</th><th>Total Moving Time</th><th>Fastest 1km</th><th>Fastest 5km</th><th>Fastest 10km</th></tr></thead><tbody>';
             data.forEach((row, i) => {
                 const athleteId = row.athlete_id;
                 const color = getAthleteColor(athleteId, i);
@@ -466,10 +486,18 @@ function renderLeaderboardAndGraph(month, year) {
                     <td>${row.silver || 0}</td>
                     <td>${row.bronze || 0}</td>
                     <td>${row.route_records || 0}</td>
+                    <td>${row.avg_pace || ''}</td>
+                    <td>${row.total_elev_gain || 0}</td>
+                    <td>${row.avg_elev_gain || 0}</td>
+                    <td>${row.gap || ''}</td>
+                    <td>${row.total_moving_time || ''}</td>
+                    <td>${row.fastest_1km || ''}</td>
+                    <td>${row.fastest_5km || ''}</td>
+                    <td>${row.fastest_10km || ''}</td>
                 </tr>`;
                 // Activity dropdown (hidden by default, animated)
                 html += `<tr id="${dropdownId}" class="activity-dropdown-row" style="display:none;background:#f9f9fc;">
-                  <td></td><td colspan="7">
+                  <td></td><td colspan="15">
                     <div class="activity-dropdown-content" style="max-height:0;overflow:hidden;transition:max-height 0.3s cubic-bezier(0.4,0,0.2,1);">
                     <table class="table table-sm mb-0"><thead><tr><th>Date</th><th>Distance (km)</th><th>Type</th><th>Pace (min/km)</th><th>Elevation (m)</th></tr></thead><tbody>`;
                 if (row.activities && row.activities.length) {
@@ -529,5 +557,6 @@ function renderLeaderboardAndGraph(month, year) {
         });
 }
 </script>
+<script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
 </body>
 </html>

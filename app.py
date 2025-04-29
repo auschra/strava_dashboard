@@ -54,13 +54,36 @@ def get_activities(athlete_id, access_token):
     headers = {"Authorization": f"Bearer {access_token}"}
     params = {"per_page": 100}
     r = requests.get(url, headers=headers, params=params)
-    print(f"Fetching activities for athlete {athlete_id}, status: {r.status_code}")
+    print(f"[get_activities] athlete_id={athlete_id} using token={access_token[:8]}... status={r.status_code}")
+    # Auto-refresh access token on authorization error
+    if r.status_code == 401:
+        print("Access token expired, refreshing...")
+        new_token = refresh_access_token()
+        if new_token:
+            headers = {"Authorization": f"Bearer {STRAVA_ACCESS_TOKEN}"}
+            r = requests.get(url, headers=headers, params=params)
+            print(f"[get_activities] RETRY athlete_id={athlete_id} using token={STRAVA_ACCESS_TOKEN[:8]}... status={r.status_code}")
+        else:
+            print("[get_activities] Token refresh failed.")
+            return []
+    print(f"[get_activities] Fetching activities for athlete {athlete_id}, status: {r.status_code}")
     if r.status_code == 200:
-        print(f"Returned {len(r.json())} activities")
-        return r.json()
+        activities = r.json()
+        print(f"[get_activities] Returned {len(activities)} activities for athlete {athlete_id}")
+        # Print the first and last activity dates if present
+        if activities:
+            print(f"[get_activities] First activity date: {activities[0]['start_date']}, Last: {activities[-1]['start_date']}")
+        return activities
     else:
-        print("Error:", r.text)
+        print("[get_activities] Error:", r.text)
         return []
+
+# Helper: format seconds to H:MM:SS or M:SS
+def format_time(seconds):
+    secs = int(seconds)
+    m, s = divmod(secs, 60)
+    h, m = divmod(m, 60)
+    return f"{h}:{m:02d}:{s:02d}" if h else f"{m}:{s:02d}"
 
 @app.route('/stats/<athlete_id>')
 def stats(athlete_id):
@@ -96,7 +119,6 @@ def api_activities():
     results = []
     for athlete_id in ATHLETE_IDS:
         acts = get_activities(athlete_id, STRAVA_ACCESS_TOKEN)
-        acts = acts[:10]  # Only use the last 10 activities
         for a in acts:
             # Filter by month/year if provided
             if month and year:
@@ -146,14 +168,14 @@ def api_bestof():
             'longest': {
                 'id': longest['id'],
                 'distance': longest.get('distance', 0),
-                'polyline': longest.get('map', {}).get('polyline'),
+                'polyline': longest.get('map', {}).get('summary_polyline'),
                 'name': longest.get('name')
             },
             'fastest': {
                 'id': fastest['id'],
                 'distance': fastest.get('distance', 0),
                 'speed': fastest.get('distance', 0)/fastest.get('moving_time', 1),
-                'polyline': fastest.get('map', {}).get('polyline'),
+                'polyline': fastest.get('map', {}).get('summary_polyline'),
                 'name': fastest.get('name')
             }
         }
@@ -173,9 +195,12 @@ def api_elevation():
 def api_leaderboard():
     month = request.args.get('month', type=int)
     year = request.args.get('year', type=int)
+    print(f"[api_leaderboard] month={month} year={year}")
     leaderboard = []
+    from polyline_grid import route_grid_signature, routes_similar
     for athlete_id in ATHLETE_IDS:
         acts = get_activities(athlete_id, STRAVA_ACCESS_TOKEN)
+        print(f"[api_leaderboard] athlete_id={athlete_id} fetched {len(acts)} activities")
         # Filter for selected month/year
         monthly_acts = []
         for a in acts:
@@ -183,8 +208,10 @@ def api_leaderboard():
                 dt = datetime.strptime(a['start_date'][:10], '%Y-%m-%d')
                 if dt.month == month and dt.year == year:
                     monthly_acts.append(a)
-            except Exception:
+            except Exception as ex:
+                print(f"[api_leaderboard] Error parsing date for activity {a.get('id')}: {ex}")
                 continue
+        print(f"[api_leaderboard] athlete_id={athlete_id} monthly_acts count: {len(monthly_acts)}")
         # Sort by date
         monthly_acts.sort(key=lambda a: a['start_date'])
         # Cumulative distance by day
@@ -211,16 +238,63 @@ def api_leaderboard():
                     silver += 1
                 elif pr_rank == 3:
                     bronze += 1
+        # Metrics: pace, elevation, GAP, moving time, splits
+        total_distance = sum(a.get('distance', 0) for a in monthly_acts)
+        total_moving_time = sum(a.get('moving_time', 0) for a in monthly_acts)
+        avg_pace_sec = (total_moving_time / (total_distance/1000)) if total_distance > 0 else 0
+        total_elev_gain = sum(a.get('total_elevation_gain', 0) for a in monthly_acts)
+        avg_elev_gain = (total_elev_gain / len(monthly_acts)) if monthly_acts else 0
+        grade = (total_elev_gain / total_distance) if total_distance > 0 else 0
+        gap_sec = avg_pace_sec * (1 + grade)
+        # Splits
+        one_km = [a['moving_time']/a['distance']*1000 for a in monthly_acts if a.get('distance',0)>0]
+        five_km = [a['moving_time']/a['distance']*5000 for a in monthly_acts if a.get('distance',0)>=5000]
+        ten_km = [a['moving_time']/a['distance']*10000 for a in monthly_acts if a.get('distance',0)>=10000]
+        fastest_1km = min(one_km) if one_km else 0
+        fastest_5km = min(five_km) if five_km else 0
+        fastest_10km = min(ten_km) if ten_km else 0
+        # --- Diversity: Grid-based route uniqueness ---
+        route_signatures = []
+        for a in monthly_acts:
+            polyline = a.get('map', {}).get('summary_polyline')
+            if not polyline:
+                continue
+            sig = route_grid_signature(polyline, precision=4)
+            # Check if similar route already exists
+            found_similar = False
+            for existing in route_signatures:
+                if routes_similar(sig, existing, jaccard_threshold=0.7):
+                    found_similar = True
+                    break
+            if not found_similar:
+                route_signatures.append(sig)
+        unique_routes = len(route_signatures)
+        diversity = round(unique_routes / len(monthly_acts), 2) if monthly_acts else 0
         leaderboard.append({
             'athlete_id': athlete_id,
             'cum': cum,
-            'total_km': round(total/1000, 2),
+            'gold': gold, 'silver': silver, 'bronze': bronze, 'route_records': route_records,
+            'avg_pace': format_time(avg_pace_sec),
+            'total_elev_gain': total_elev_gain,
+            'avg_elev_gain': round(avg_elev_gain, 2),
+            'gap': format_time(gap_sec),
+            'total_moving_time': format_time(total_moving_time),
+            'fastest_1km': format_time(fastest_1km),
+            'fastest_5km': format_time(fastest_5km),
+            'fastest_10km': format_time(fastest_10km),
+            'diversity': diversity,
+            'total_km': round(total_distance/1000, 2),
             'activity_count': len(monthly_acts),
-            'activities': monthly_acts,
-            'gold': gold,
-            'silver': silver,
-            'bronze': bronze,
-            'route_records': route_records
+            'activities': [
+                {
+                    'id': a.get('id'),
+                    'start_date': a.get('start_date'),
+                    'distance': a.get('distance'),
+                    'type': a.get('type'),
+                    'moving_time': a.get('moving_time'),
+                    'total_elevation_gain': a.get('total_elevation_gain', a.get('elevation_gain', 0)),
+                } for a in monthly_acts
+            ]
         })
     return jsonify(leaderboard)
 
